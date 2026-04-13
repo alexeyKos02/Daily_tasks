@@ -1,8 +1,18 @@
 <template>
   <div class="input-view">
     <div class="view-header">
-      <h1 class="view-title">Новые задачи</h1>
-      <p class="view-subtitle">Вставьте любой текст — приложение разберёт его на задачи автоматически</p>
+      <div class="header-row">
+        <div>
+          <h1 class="view-title">Новые задачи</h1>
+          <p class="view-subtitle">Вставьте любой текст — приложение разберёт его на задачи автоматически</p>
+        </div>
+        <button class="btn btn-ghost settings-btn" @click="settingsVisible = true">
+          <i class="pi pi-cog" />
+          <span class="ai-badge" :class="settings.useAI && settings.openaiKey ? 'active' : 'off'">
+            {{ settings.useAI && settings.openaiKey ? 'AI' : 'Regex' }}
+          </span>
+        </button>
+      </div>
     </div>
 
     <div class="input-card card">
@@ -48,11 +58,30 @@
             :disabled="!text.trim() || parsing"
             @click="handleParse"
           >
-            <i :class="parsing ? 'pi pi-spin pi-spinner' : 'pi pi-magic-wand'" />
-            {{ parsing ? 'Разбираю...' : 'Разобрать задачи' }}
+            <i :class="parsing ? 'pi pi-spin pi-spinner' : (isAiMode ? 'pi pi-sparkles' : 'pi pi-magic-wand')" />
+            {{ parseLabel }}
           </button>
         </div>
       </div>
+    </div>
+
+    <!-- AI mode banner -->
+    <div v-if="settings.useAI && settings.openaiKey" class="ai-banner">
+      <i class="pi pi-sparkles" />
+      <span>AI-парсер активен · <strong>{{ settings.aiModel }}</strong> · понимает свободный текст, контекст и сложные формулировки</span>
+      <button class="link-btn" @click="settingsVisible = true">Настройки</button>
+    </div>
+    <div v-else-if="settings.useAI && !settings.openaiKey" class="ai-banner warn">
+      <i class="pi pi-exclamation-triangle" />
+      <span>AI включён, но API ключ не указан</span>
+      <button class="link-btn" @click="settingsVisible = true">Добавить ключ</button>
+    </div>
+
+    <!-- Error -->
+    <div v-if="errorMsg" class="error-banner">
+      <i class="pi pi-times-circle" />
+      <span>{{ errorMsg }}</span>
+      <button class="link-btn" @click="errorMsg = ''">✕</button>
     </div>
 
     <!-- Hints -->
@@ -62,7 +91,7 @@
         Что умеет парсер
       </div>
       <div class="hints-grid">
-        <div class="hint-item" v-for="hint in hints" :key="hint.title">
+        <div class="hint-item" v-for="hint in currentHints" :key="hint.title">
           <i :class="hint.icon" />
           <div>
             <strong>{{ hint.title }}</strong>
@@ -71,6 +100,8 @@
         </div>
       </div>
     </div>
+
+    <SettingsDialog v-model:visible="settingsVisible" />
   </div>
 </template>
 
@@ -79,12 +110,21 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import Textarea from 'primevue/textarea'
 import { useTaskStore } from '@/stores/taskStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { parseTextToTasks } from '@/utils/textParser'
+import { parseTextWithAI } from '@/services/aiParser'
+import SettingsDialog from '@/components/SettingsDialog.vue'
 
 const router = useRouter()
 const store = useTaskStore()
+const settings = useSettingsStore()
+
 const text = ref('')
 const parsing = ref(false)
+const settingsVisible = ref(false)
+const errorMsg = ref('')
+
+const isAiMode = computed(() => settings.useAI && !!settings.openaiKey)
 
 const estimatedTasks = computed(() => {
   if (!text.value.trim()) return 0
@@ -92,12 +132,26 @@ const estimatedTasks = computed(() => {
   return Math.max(1, lines.length)
 })
 
-const hints = [
+const parseLabel = computed(() => {
+  if (parsing.value) return isAiMode.value ? 'Спрашиваю AI...' : 'Разбираю...'
+  return isAiMode.value ? 'Разобрать через AI' : 'Разобрать задачи'
+})
+
+const regexHints = [
   { icon: 'pi pi-list', title: 'Списки', desc: 'Маркированные и нумерованные' },
   { icon: 'pi pi-calendar', title: 'Даты', desc: '«завтра», «в пятницу», «15 апреля»' },
   { icon: 'pi pi-flag', title: 'Приоритеты', desc: '«срочно», «важно», «при случае»' },
-  { icon: 'pi pi-file-edit', title: 'Свободный текст', desc: 'Любой формат без структуры' }
+  { icon: 'pi pi-file-edit', title: 'Структурированный текст', desc: 'Работает лучше со списками' }
 ]
+
+const aiHints = [
+  { icon: 'pi pi-sparkles', title: 'Свободный текст', desc: 'Понимает любые формулировки' },
+  { icon: 'pi pi-calendar', title: 'Умные даты', desc: 'Интерпретирует контекст и сроки' },
+  { icon: 'pi pi-brain', title: 'Контекст', desc: 'Вычленяет задачи из повествования' },
+  { icon: 'pi pi-flag', title: 'Приоритеты', desc: 'Определяет важность по смыслу' }
+]
+
+const currentHints = computed(() => isAiMode.value ? aiHints : regexHints)
 
 const EXAMPLE_TEXT = `Планы на эту неделю:
 
@@ -116,21 +170,55 @@ function loadExample() {
 
 async function handleParse() {
   if (!text.value.trim()) return
+  errorMsg.value = ''
   parsing.value = true
 
-  // Simulate slight processing delay for UX
-  await new Promise(r => setTimeout(r, 600))
+  try {
+    let parsed
 
-  const parsed = parseTextToTasks(text.value)
-  store.setPendingParsed(parsed)
-  parsing.value = false
+    if (isAiMode.value) {
+      parsed = await parseTextWithAI(text.value, settings.openaiKey)
+    } else {
+      await new Promise(r => setTimeout(r, 400))
+      parsed = parseTextToTasks(text.value)
+    }
 
-  router.push('/preview')
+    store.setPendingParsed(parsed)
+    router.push('/preview')
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Неизвестная ошибка'
+    errorMsg.value = `Ошибка AI: ${msg}`
+  } finally {
+    parsing.value = false
+  }
 }
 </script>
 
 <style scoped>
 .input-view { max-width: 800px; }
+
+.header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.ai-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 99px;
+}
+.ai-badge.active { background: #f0fdf4; color: #15803d; }
+.ai-badge.off { background: var(--surface-hover); color: var(--text-muted); }
 
 .input-card {
   padding: 0;
@@ -147,7 +235,6 @@ async function handleParse() {
   font-weight: 600;
   color: var(--text-muted);
 }
-
 .input-card-header .pi:first-child { color: var(--primary); }
 
 .clear-btn {
@@ -193,20 +280,49 @@ async function handleParse() {
   gap: 6px;
 }
 
-.input-actions {
-  display: flex;
-  gap: 10px;
-}
+.input-actions { display: flex; gap: 10px; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
-.btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+/* AI/Error banners */
+.ai-banner, .error-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 16px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  margin-top: 12px;
+}
+.ai-banner {
+  background: #f0fdf4;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+.ai-banner.warn {
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+.error-banner {
+  background: #fef2f2;
+  color: var(--danger);
+  border: 1px solid #fecaca;
+}
+.link-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: inherit;
+  text-decoration: underline;
+  padding: 0;
+  flex-shrink: 0;
 }
 
 /* Hints */
-.hints {
-  margin-top: 28px;
-}
+.hints { margin-top: 28px; }
 
 .hint-title {
   display: flex;

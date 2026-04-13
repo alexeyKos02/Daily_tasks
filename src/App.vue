@@ -27,10 +27,15 @@
         <button class="theme-btn" @click="toggleDark" :title="isDark ? 'Светлая тема' : 'Тёмная тема'">
           <i :class="isDark ? 'pi pi-sun' : 'pi pi-moon'" />
         </button>
+        <button class="theme-btn" @click="settingsVisible = true" title="Настройки AI">
+          <i class="pi pi-cog" />
+        </button>
         <div class="stats">
           <span>{{ store.counts.completed }}/{{ store.counts.all }} выполнено</span>
         </div>
       </div>
+
+      <SettingsDialog v-model:visible="settingsVisible" />
     </aside>
 
     <!-- Main content -->
@@ -52,10 +57,12 @@ import { useRoute, RouterLink, RouterView } from 'vue-router'
 import { useTaskStore } from '@/stores/taskStore'
 import Badge from 'primevue/badge'
 import Toast from 'primevue/toast'
+import SettingsDialog from '@/components/SettingsDialog.vue'
 
 const route = useRoute()
 const store = useTaskStore()
 const isDark = ref(false)
+const settingsVisible = ref(false)
 
 function toggleDark() {
   isDark.value = !isDark.value

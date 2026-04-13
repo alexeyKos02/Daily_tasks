@@ -12,6 +12,7 @@
     "@primeuix/themes": "^1.0.0",
     "@vueuse/core": "^10.9.0",
     "date-fns": "^3.6.0",
+    "openai": "^6.34.0",
     "pinia": "^2.1.7",
     "primeicons": "^7.0.0",
     "primevue": "^4.3.3",
