@@ -28,7 +28,7 @@
       </div>
       <div class="banner-content">
         <strong>Всё нормально распозналось?</strong>
-        <span>Проверьте задачи ниже, исправьте формулировки или даты, добавьте нужные — и подтвердите список.</span>
+        <span>Нажмите на описание — его можно отредактировать прямо здесь. Кнопка «✏️» открывает полное редактирование.</span>
       </div>
       <div class="banner-actions">
         <button class="btn btn-ghost" @click="goBack">
@@ -57,7 +57,7 @@
               <div class="priority-dot" :class="task.priority" />
               <span class="item-index">#{{ index + 1 }}</span>
               <div class="item-actions">
-                <button class="icon-btn" @click="startEdit(index)" title="Редактировать">
+                <button class="icon-btn" @click="startEdit(index)" title="Редактировать всё">
                   <i class="pi pi-pencil" />
                 </button>
                 <button class="icon-btn danger" @click="store.removePendingTask(index)" title="Удалить">
@@ -66,7 +66,32 @@
               </div>
             </div>
 
-            <h3 class="item-title">{{ task.title }}</h3>
+            <!-- Inline-editable title -->
+            <div class="inline-field" :class="{ focused: focusedField === `title-${index}` }">
+              <input
+                class="inline-title"
+                :value="task.title"
+                @input="store.updatePendingTask(index, { title: ($event.target as HTMLInputElement).value })"
+                @focus="focusedField = `title-${index}`"
+                @blur="focusedField = null"
+              />
+            </div>
+
+            <!-- Inline-editable description -->
+            <div class="inline-field desc-field" :class="{ focused: focusedField === `desc-${index}` }">
+              <textarea
+                class="inline-desc"
+                :value="task.description"
+                :placeholder="'Добавьте описание...'"
+                rows="2"
+                @input="store.updatePendingTask(index, { description: ($event.target as HTMLTextAreaElement).value })"
+                @focus="focusedField = `desc-${index}`"
+                @blur="focusedField = null"
+              />
+              <span v-if="!task.description && focusedField !== `desc-${index}`" class="desc-hint">
+                <i class="pi pi-plus" /> описание
+              </span>
+            </div>
 
             <div class="item-meta">
               <span v-if="task.dueDate" class="meta-badge date">
@@ -82,19 +107,19 @@
                 {{ priorityLabel[task.priority] }}
               </span>
             </div>
-
-            <div v-if="task.sourceText && task.sourceText !== task.title" class="source-text">
-              <i class="pi pi-align-left" />
-              {{ task.sourceText }}
-            </div>
           </template>
 
-          <!-- Edit mode -->
+          <!-- Full edit mode -->
           <template v-else>
             <div class="edit-form">
               <div class="edit-field">
                 <label>Название задачи</label>
                 <InputText v-model="editBuffer.title" class="w-full" />
+              </div>
+
+              <div class="edit-field">
+                <label>Описание</label>
+                <Textarea v-model="editBuffer.description" :rows="3" class="w-full" placeholder="Что конкретно нужно сделать, зачем, контекст..." />
               </div>
 
               <div class="edit-row">
@@ -118,11 +143,6 @@
                     class="w-full"
                   />
                 </div>
-              </div>
-
-              <div class="edit-field">
-                <label>Описание (опционально)</label>
-                <Textarea v-model="editBuffer.description" :rows="2" class="w-full" />
               </div>
 
               <div class="edit-actions">
@@ -172,6 +192,8 @@ const store = useTaskStore()
 const toast = useToast()
 
 const editingIndex = ref<number | null>(null)
+const focusedField = ref<string | null>(null)
+
 const editBuffer = reactive<ParsedTask>({
   title: '',
   description: '',
@@ -232,7 +254,6 @@ function addEmptyTask() {
     priority: 'medium',
     sourceText: ''
   })
-  // Auto-open edit for the new task
   setTimeout(() => startEdit(store.pendingParsed.length - 1), 50)
 }
 
@@ -265,12 +286,7 @@ function confirmAll() {
   border-color: var(--primary);
   margin-bottom: 20px;
 }
-
-.banner-icon .pi {
-  font-size: 24px;
-  color: var(--primary);
-}
-
+.banner-icon .pi { font-size: 24px; color: var(--primary); }
 .banner-content {
   flex: 1;
   display: flex;
@@ -280,12 +296,7 @@ function confirmAll() {
 }
 .banner-content strong { color: var(--text); }
 .banner-content span { color: var(--text-muted); font-size: 13px; }
-
-.banner-actions {
-  display: flex;
-  gap: 10px;
-  flex-shrink: 0;
-}
+.banner-actions { display: flex; gap: 10px; flex-shrink: 0; }
 
 /* List */
 .preview-list {
@@ -310,45 +321,69 @@ function confirmAll() {
   gap: 8px;
   margin-bottom: 10px;
 }
+.item-index { font-size: 12px; color: var(--text-muted); font-weight: 600; }
+.item-actions { margin-left: auto; display: flex; gap: 4px; }
 
-.item-index {
-  font-size: 12px;
-  color: var(--text-muted);
-  font-weight: 600;
-}
-
-.item-actions {
-  margin-left: auto;
-  display: flex;
-  gap: 4px;
-}
-
-.icon-btn {
-  background: none;
-  border: none;
-  padding: 5px 7px;
+/* Inline editing */
+.inline-field {
+  position: relative;
   border-radius: 6px;
-  cursor: pointer;
-  color: var(--text-muted);
-  font-size: 13px;
-  transition: all 0.15s;
+  transition: background 0.15s;
+  margin-bottom: 4px;
 }
-.icon-btn:hover { background: var(--surface-hover); color: var(--text); }
-.icon-btn.danger:hover { color: var(--danger); background: #fef2f2; }
+.inline-field:hover { background: var(--surface-hover); }
+.inline-field.focused { background: var(--surface-hover); box-shadow: 0 0 0 2px rgba(99,102,241,.2); }
 
-.item-title {
+.inline-title {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
   font-size: 15px;
   font-weight: 600;
   color: var(--text);
-  margin-bottom: 10px;
   line-height: 1.4;
+  padding: 6px 8px;
+  cursor: text;
+  font-family: inherit;
+}
+
+.desc-field { margin-bottom: 10px; }
+
+.inline-desc {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.55;
+  padding: 4px 8px;
+  resize: none;
+  cursor: text;
+  font-family: inherit;
+  min-height: 40px;
+}
+.inline-desc::placeholder { color: var(--border); font-style: italic; }
+
+.desc-hint {
+  position: absolute;
+  top: 50%;
+  left: 8px;
+  transform: translateY(-50%);
+  font-size: 12px;
+  color: var(--border);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .item-meta {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  margin-bottom: 8px;
+  padding: 0 6px;
 }
 
 .meta-badge {
@@ -365,18 +400,6 @@ function confirmAll() {
 .priority-badge-high { background: #fef2f2; color: #dc2626; }
 .priority-badge-medium { background: #fffbeb; color: #b45309; }
 .priority-badge-low { background: #f0fdf4; color: #15803d; }
-
-.source-text {
-  font-size: 12px;
-  color: var(--text-muted);
-  display: flex;
-  gap: 6px;
-  align-items: flex-start;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px dashed var(--border);
-  font-style: italic;
-}
 
 /* Edit form */
 .edit-form { display: flex; flex-direction: column; gap: 14px; }
@@ -439,4 +462,17 @@ function confirmAll() {
 .list-enter-from, .list-leave-to { opacity: 0; transform: translateY(-8px); }
 
 .w-full { width: 100%; }
+
+.icon-btn {
+  background: none;
+  border: none;
+  padding: 5px 7px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 13px;
+  transition: all 0.15s;
+}
+.icon-btn:hover { background: var(--surface-hover); color: var(--text); }
+.icon-btn.danger:hover { color: var(--danger); background: #fef2f2; }
 </style>

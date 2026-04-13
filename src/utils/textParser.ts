@@ -136,9 +136,14 @@ export function parseTextToTasks(rawText: string): ParsedTask[] {
     // Capitalize first letter
     const finalTitle = title.charAt(0).toUpperCase() + title.slice(1)
 
+    // Use cleaned source text as default description
+    const description = cleanTitle(segment) !== finalTitle
+      ? cleanTitle(segment)
+      : segment.trim()
+
     tasks.push({
       title: finalTitle,
-      description: '',
+      description,
       dueDate,
       priority,
       sourceText: segment
